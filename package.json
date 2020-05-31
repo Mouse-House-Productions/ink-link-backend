@@ -1,0 +1,15 @@
+{
+  "name": "ink-link-backend",
+  "version": "1.0.0",
+  "description": "Backend for Ink Link",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@gitlab.citrusbytes.net:22448/elliot/ink-link-backend.git"
+  },
+  "author": "Team Mouse",
+  "license": "UNLICENSED"
+}
