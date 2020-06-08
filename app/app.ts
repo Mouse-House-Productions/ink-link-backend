@@ -9,6 +9,8 @@ import {IGalleryService, InMemoryGalleryService} from "./Gallery/GalleryService"
 import Player from "./Player/Player";
 import Book from "./Book/Book";
 import playerOrder from "./playerOrder";
+import {Type} from "./Page/Page";
+import escapeHTML from "escape-html";
 
 const app: express.Application = express();
 const port = 3001;
@@ -18,7 +20,9 @@ const bookService : IBookService = new InMemoryBookService();
 const jobService : IJobService = new InMemoryJobService(bookService); //Fixme: why do we need the book service? Use callbacks?
 const galleryService : IGalleryService = new InMemoryGalleryService();
 
-app.use(json());
+app.use(json({
+    limit: '10mb'
+}));
 app.use(cors({
     origin: '*',
     methods: '*'
@@ -101,7 +105,8 @@ app.get('/room', (req, res) => {
     if (room) {
         res.send({
             players: room.getPlayers().map(p => playerService.getPlayer(p)),
-            galleryId: room.activeGalleryId
+            galleryId: room.activeGalleryId,
+            galleries: [...room.galleries].filter(g => g !== room.activeGalleryId)
         });
     } else {
         res.status(404).send('Not found');
@@ -151,7 +156,7 @@ app.post('/job', (req, res) => {
     }
 });
 
-//TOOD:Add some middleware that generates the 404 if you return undefiyypned/don't send something
+//TOOD:Add some middleware that generates the 404 if you return undefined/don't send something
 app.get('/gallery', (req, res) => {
     const id = req.param('galleryId', '');
     const gallery = galleryService.findById(id);
@@ -198,6 +203,39 @@ app.get('/gallery/books', (req, res) => {
         res.status(404).send({
             msg: 'Gallery not found'
         })
+    }
+});
+
+app.get('/gallery/download', (req, res) => {
+    const id = req.param('galleryId', '');
+    const gallery = galleryService.findById(id);
+    const prefix = '<!DOCTYPE html><html lang="en"><head><link href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap" rel="stylesheet"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ink Link Gallery</title></head><body><style> body { font-family: "Caveat Brush", "Arial", "Helvetica", "sans-serif"; background: #eff1f3; } .book { display: flex; flex-direction: column; width: 100vw; align-items: center; } .book > h1 { width: 95%; } .book > * { padding: 1rem; } .picture { display: flex; flex-direction: column; align-items: flex-end; } .picture img { max-width: 95vw; margin: auto; border: 2px solid #223843; background: #ffffff; }</style>'
+    const suffix = '</body></html>';
+    if (gallery) {
+        const page = prefix
+            + gallery.bookIds.map(b => bookService.findById(b))
+                .filter((b): b is Book => typeof b !== "undefined")
+                .map(b => {
+                    const bookAuthor = playerService.getPlayer(b.authorId);
+                    const name = escapeHTML((bookAuthor) ? bookAuthor.name : 'Unknown');
+                    return `<h1>${name}'s book</h1>${b.pages.map(p => {
+                        const player = playerService.getPlayer(p.authorId);
+                        const name = escapeHTML((player) ? player.name : 'Unknown');
+                        if (p.type === Type.DESCRIPTION) {
+                            return `<span>${name}: "${escapeHTML(p.contents)}"</span>`;
+                        } else if (p.type === Type.DEPICTION) {
+                            return `<div class="picture"><img src="${escapeHTML(p.contents)}" alt="Picture by ${name}"/><span>By ${name}</span></div>`
+                        }
+                    }).join('')}`;
+                }).join('')
+            + suffix;
+        res.status(200)
+            .header('Content-Type', 'text/html; charset=UTF-8')
+            .send(page);
+    } else {
+        res.status(404)
+            .header('Content-Type', 'text/html; charset=UTF-8')
+            .send('<html lang="en"><head><title>Ink Link Gallery - 404</title></head><body><p>Sorry, that gallery could not be found</p></body></html>');
     }
 });
 
