@@ -34,6 +34,11 @@ class Book {
       }
    }
 
+   skip() : (Job | undefined) {
+      this.players.shift();
+      return this.next();
+   }
+
    complete() {
       return this.players.length === 0;
    }

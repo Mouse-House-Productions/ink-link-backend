@@ -6,7 +6,7 @@ import {InMemoryPlayerService, IPlayerService} from "./Player/PlayerService";
 import {IBookService, InMemoryBookService} from "./Book/BookService";
 import {IJobService, InMemoryJobService} from "./Job/JobService";
 import {IGalleryService, InMemoryGalleryService} from "./Gallery/GalleryService";
-import Player from "./Player/Player";
+import Player, {State} from "./Player/Player";
 import Book from "./Book/Book";
 import playerOrder from "./playerOrder";
 import {Type} from "./Page/Page";
@@ -23,10 +23,26 @@ const galleryService : IGalleryService = new InMemoryGalleryService();
 app.use(json({
     limit: '10mb'
 }));
+
 app.use(cors({
     origin: '*',
     methods: '*'
 }));
+
+app.use((req, res, next) => {
+    let header = req.header("X-InkLink-UserId");
+    if (header) {
+        playerService.seen(header);
+    }
+    next();
+});
+
+setInterval(() => {
+    jobService.getActive()
+        .map(j => ({j: j, p: playerService.getPlayer(j.playerId)}))
+        .filter(jp => !jp.p || jp.p.state === State.INACTIVE)
+        .forEach(jp => jobService.skip(jp.j.jobId))
+}, 1000);
 
 app.get('/', (req, res) => {
     res.send('Hello, World!');
@@ -54,6 +70,18 @@ app.post('/join', (req : Request, res) => {
     res.status(400).send('Invalid join params');
 });
 
+app.post('/leave', (req, res) => {
+    if (req.body) {
+        playerService.markInactive(req.body.playerId);
+    }
+    res.status(201).send();
+});
+
+app.post('/checkin', (req, res) => {
+    res.status(201).send();
+});
+
+
 app.post('/player', (req, res) => {
     if (req.body) {
         const name = req.body.playerName;
@@ -68,7 +96,7 @@ app.post('/start', (req, res) => {
     if (req.body && req.body.roomId) {
         const room = roomService.findById(req.body.roomId);
         if (room) {
-            const players = room.getPlayers();
+            const players = room.getPlayers().filter(p => playerService.getPlayer(p)?.state === State.ACTIVE);
             const shuffled : string[] = players.map(v => ({sort: Math.random(), v: v}))
                 .sort((a, b) => a.sort - b.sort)
                 .map(v => v.v);

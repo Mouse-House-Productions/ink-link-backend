@@ -1,4 +1,5 @@
 build/
 *.swp
 *.iml
+*.zip
 node_modules

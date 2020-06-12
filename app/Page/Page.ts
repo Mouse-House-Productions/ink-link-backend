@@ -1,5 +1,3 @@
-import Player from "../Player/Player";
-
 export enum Type {
     DESCRIPTION = "description",
     DEPICTION = "depiction"
