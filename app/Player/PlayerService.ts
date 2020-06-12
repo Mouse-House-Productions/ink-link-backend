@@ -20,7 +20,7 @@ export class InMemoryPlayerService implements IPlayerService {
             const now = new Date();
             [...this.players.values()].forEach(p => {
                 let playerLastSeen = this.lastSeen.get(p.id);
-                if (!playerLastSeen || (((now.getTime() - playerLastSeen.getTime())) > 30000) ) {
+                if (!playerLastSeen || (((now.getTime() - playerLastSeen.getTime())) > 90000) ) {
                     p.state = State.INACTIVE;
                 }
             });
