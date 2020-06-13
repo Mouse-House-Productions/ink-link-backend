@@ -9,7 +9,7 @@ import {IGalleryService, InMemoryGalleryService} from "./Gallery/GalleryService"
 import Player, {State} from "./Player/Player";
 import Book from "./Book/Book";
 import playerOrder from "./playerOrder";
-import {Type} from "./Page/Page";
+import Page, {Type} from "./Page/Page";
 import escapeHTML from "escape-html";
 
 const app: express.Application = express();
@@ -17,7 +17,7 @@ const port = 3001;
 const roomService : IRoomService = new InMemoryRoomService();
 const playerService : IPlayerService = new InMemoryPlayerService();
 const bookService : IBookService = new InMemoryBookService();
-const jobService : IJobService = new InMemoryJobService(bookService); //Fixme: why do we need the book service? Use callbacks?
+const jobService : IJobService = new InMemoryJobService();
 const galleryService : IGalleryService = new InMemoryGalleryService();
 
 app.use(json({
@@ -41,7 +41,10 @@ setInterval(() => {
     jobService.getActive()
         .map(j => ({j: j, p: playerService.getPlayer(j.playerId)}))
         .filter(jp => !jp.p || jp.p.state === State.INACTIVE)
-        .forEach(jp => jobService.skip(jp.j.jobId))
+        .forEach(jp => {
+            jobService.skip(jp.j.jobId);
+            jobService.queue(bookService.skipPage(jp.j.bookId));
+        })
 }, 1000);
 
 app.get('/', (req, res) => {
@@ -59,7 +62,7 @@ app.post('/join', (req : Request, res) => {
                 return res.send({
                     id: room.id,
                     roomCode: room.lobbyName,
-                    players: room.getPlayers().map(id => ({
+                    players: roomService.players(room.id).map(id => ({
                         id: id,
                         name: playerService.getPlayer(id)?.name
                     }))
@@ -96,19 +99,23 @@ app.post('/start', (req, res) => {
     if (req.body && req.body.roomId) {
         const room = roomService.findById(req.body.roomId);
         if (room) {
-            const players = room.getPlayers().filter(p => playerService.getPlayer(p)?.state === State.ACTIVE);
+            const players = roomService.players(room.id).filter(p => playerService.getPlayer(p)?.state === State.ACTIVE);
             const shuffled : string[] = players.map(v => ({sort: Math.random(), v: v}))
                 .sort((a, b) => a.sort - b.sort)
                 .map(v => v.v);
             const orders : string[][] = playerOrder(shuffled);
             const books = orders.map(b => bookService.create(b, b[0], room.id));
-            books.map(b => b.next()).forEach(j => jobService.queue(j));
             const gallery = galleryService.createGallery(room.id, books.map(b => b.id));
-            room.galleries.add(gallery.id);
-            room.activeGalleryId = gallery.id;
-            return res.status(200).send({
-                galleryId: gallery.id
-            })
+            if (roomService.addGallery(room.id, gallery.id)) {
+                books.map(b => bookService.nextJob(b.id)).forEach(j => jobService.queue(j));
+                return res.status(200).send({
+                    galleryId: gallery.id
+                });
+            } else {
+                return res.status(409).send({
+                    msg: 'Room already has an active gallery'
+                });
+            }
         }
     }
     res.status(404).send('Room not found');
@@ -116,11 +123,8 @@ app.post('/start', (req, res) => {
 
 app.post('/complete', (req, res) => {
     if (req.body && req.body.roomId) {
-        const room = roomService.findById(req.body.roomId);
-        if (room) {
-            room.activeGalleryId = '';
-            return res.status(200).end()
-        }
+        roomService.clearGallery(req.body.roomId);
+        return res.status(200).end()
     }
     res.status(404).send({
         msg: 'Room not found'
@@ -132,7 +136,7 @@ app.get('/room', (req, res) => {
     const room = roomService.findById(id);
     if (room) {
         res.send({
-            players: room.getPlayers().map(p => playerService.getPlayer(p)),
+            players: roomService.players(room.id).map(p => playerService.getPlayer(p)),
             galleryId: room.activeGalleryId,
             galleries: [...room.galleries].filter(g => g !== room.activeGalleryId)
         });
@@ -157,7 +161,8 @@ app.get('/books', (req, res) => {
     const id = req.query.roomId || '';
     const room = roomService.findById(id);
     if (room) {
-        const players = room.getPlayers()
+        //Is this map really necessary? We could just make the individual queries inline.
+        const players = roomService.players(room.id)
             .map(p => playerService.getPlayer(p))
             .filter((p): p is Player => typeof p !== "undefined")
             .reduce((map, p) => map.set(p.id, p.name), new Map<string, string>());
@@ -177,7 +182,12 @@ app.get('/books', (req, res) => {
 
 app.post('/job', (req, res) => {
     if (req.body && req.body.id && req.body.contents) {
-        jobService.complete(req.body.id, req.body.contents);
+        const job = jobService.complete(req.body.id);
+        if (job) {
+            const page = new Page(job.type, req.body.contents, job.playerId);
+            bookService.addPage(job.bookId, page);
+            jobService.queue(bookService.nextJob(job.bookId));
+        } 
         res.status(200).end();
     } else{
         res.status(400).send('Bad complete params');
@@ -206,7 +216,8 @@ app.get('/gallery/books', (req, res) => {
     if (gallery) {
         const room = roomService.findById(gallery.roomId);
         if (room) {
-            const players = room.getPlayers()
+            //Is this map really necessary? We could just make the individual queries inline.
+            const players = roomService.players(room.id)
                 .map(p => playerService.getPlayer(p))
                 .filter((p): p is Player => typeof p !== "undefined")
                 .reduce((map, p) => map.set(p.id, p.name), new Map<string, string>());
@@ -269,21 +280,18 @@ app.get('/gallery/download', (req, res) => {
 
 app.post('/gallery', (req,res) => {
     const id = req.body.galleryId;
-    const gallery = galleryService.findById(id);
-    if (gallery) {
-        if (typeof req.body.active === "string") {
-            gallery.active = req.body.active;
-        }
-
-        if (typeof req.body.progress === "number") {
-            gallery.progress = req.body.progress;
-        }
-        res.status(200).end();
-    } else {
-        res.status(404).send({
-            msg: 'Gallery not found'
-        })
+    let active : string, progress : number;
+    if (typeof req.body.active === "string") {
+        active = req.body.active;
     }
+
+    if (typeof req.body.progress === "number") {
+        progress = req.body.progress;
+    }
+
+    galleryService.setProgress(id, active, progress);
+    
+    res.status(201).end();
 })
 
 app.listen(port, () => {

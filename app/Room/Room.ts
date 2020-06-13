@@ -1,7 +1,7 @@
 class Room {
-    readonly id: string
-    readonly lobbyName: string;
-    private players: Set<string>
+    id: string
+    lobbyName: string;
+    players: Set<string>
     activeGalleryId : string;
     galleries : Set<string>
 
@@ -12,15 +12,6 @@ class Room {
         this.activeGalleryId = '';
         this.galleries = new Set<string>();
     }
-
-    public addPlayer(p: string) : void {
-        this.players.add(p);
-    }
-
-    public getPlayers() : string[] {
-        return [...this.players.values()];
-    }
-
 }
 
 export default Room;

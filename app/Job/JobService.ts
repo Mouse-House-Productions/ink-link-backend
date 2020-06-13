@@ -1,21 +1,18 @@
 import Job from "./Job";
 import {v4 as uuid} from 'uuid';
-import {IBookService} from "../Book/BookService";
 
 export interface IJobService {
     get: (playerId: string) => Job | undefined;
     getActive: () => Job[];
-    complete: (jobId : string, contents: string) => void;
-    skip: (jobId: string) => void;
+    complete: (jobId : string) => Job | undefined;
+    cancel: (jobId: string) => void;
     queue: (job? : Job) => void;
 }
 
 export class InMemoryJobService implements IJobService {
-    private bookService : IBookService;
     private jobs : Job[];
 
-    constructor(bookService: IBookService) {
-        this.bookService = bookService;
+    constructor() {
         this.jobs = [];
     }
 
@@ -23,27 +20,18 @@ export class InMemoryJobService implements IJobService {
         return this.jobs.find(j => !j.completed && j.playerId === playerId);
     }
 
-    complete(jobId : string, contents: string) {
+    complete(jobId : string) {
         const job = this.jobs.find(j => j.jobId === jobId);
         if (job) {
             job.completed = true;
-            const book = this.bookService.findById(job.bookId);
-            const next = book?.addPage(job, contents);
-            if (next) {
-                this.jobs.push(new Job(uuid(), next.type, next.playerId, next.contents, next.bookId));
-            }
         }
+        return job;
     }
 
-    skip(jobId: string) {
+    cancel(jobId: string) {
         const job = this.jobs.find(j => j.jobId === jobId);
         if (job) {
             job.completed = true;
-            const book = this.bookService.findById(job.bookId);
-            const next = book?.skip();
-            if (next) {
-                this.jobs.push(new Job(uuid(), next.type, next.playerId, next.contents, next.bookId));
-            }
         }
     }
 
