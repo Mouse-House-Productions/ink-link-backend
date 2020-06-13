@@ -128,7 +128,7 @@ app.post('/complete', (req, res) => {
 });
 
 app.get('/room', (req, res) => {
-    const id = req.param('id', '');
+    const id = req.query.id || '';
     const room = roomService.findById(id);
     if (room) {
         res.send({
@@ -142,8 +142,8 @@ app.get('/room', (req, res) => {
 });
 
 app.get('/waiting', (req, res) => {
-    const id = req.param('id', '');
-    const roomId = req.param('roomId', '');
+    const id = req.query.id || '';
+    const roomId = req.query.roomId || '';
     const job = jobService.get(id);
     const room = roomService.findById(roomId);
     const gallery = galleryService.findById(room?.activeGalleryId);
@@ -154,7 +154,7 @@ app.get('/waiting', (req, res) => {
 })
 
 app.get('/books', (req, res) => {
-    const id = req.param('roomId', '');
+    const id = req.query.roomId || '';
     const room = roomService.findById(id);
     if (room) {
         const players = room.getPlayers()
@@ -186,7 +186,7 @@ app.post('/job', (req, res) => {
 
 //TOOD:Add some middleware that generates the 404 if you return undefined/don't send something
 app.get('/gallery', (req, res) => {
-    const id = req.param('galleryId', '');
+    const id = req.query.galleryId || '';
     const gallery = galleryService.findById(id);
     if (gallery) {
         res.status(200).send({
@@ -201,7 +201,7 @@ app.get('/gallery', (req, res) => {
 })
 
 app.get('/gallery/books', (req, res) => {
-    const id = req.param('galleryId', '');
+    const id = req.query.galleryId || '';
     const gallery = galleryService.findById(id);
     if (gallery) {
         const room = roomService.findById(gallery.roomId);
@@ -235,7 +235,7 @@ app.get('/gallery/books', (req, res) => {
 });
 
 app.get('/gallery/download', (req, res) => {
-    const id = req.param('galleryId', '');
+    const id = req.query.galleryId || '';
     const gallery = galleryService.findById(id);
     const prefix = '<!DOCTYPE html><html lang="en"><head><link href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap" rel="stylesheet"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ink Link Gallery</title></head><body><style> body { font-family: "Caveat Brush", "Arial", "Helvetica", "sans-serif"; background: #eff1f3; } .book { display: flex; flex-direction: column; width: 100vw; align-items: center; } .book > h1 { width: 95%; } .book > * { padding: 1rem; } .picture { display: flex; flex-direction: column; align-items: flex-end; } .picture img { max-width: 95vw; margin: auto; border: 2px solid #223843; background: #ffffff; }</style>'
     const suffix = '</body></html>';
