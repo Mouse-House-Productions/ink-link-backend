@@ -1,15 +1,8 @@
-import Job from "./Job";
-import {v4 as uuid} from 'uuid';
+import Job from "../../Job/Job";
+import {v4 as uuid} from "uuid";
+import IJobService from "../JobService";
 
-export interface IJobService {
-    get: (playerId: string) => Job | undefined;
-    getActive: () => Job[];
-    complete: (jobId : string) => Job | undefined;
-    cancel: (jobId: string) => void;
-    queue: (job? : Job) => void;
-}
-
-export class InMemoryJobService implements IJobService {
+export default class InMemoryJobService implements IJobService {
     private jobs : Job[];
 
     constructor() {
@@ -44,5 +37,4 @@ export class InMemoryJobService implements IJobService {
             this.jobs.push(new Job(uuid(), job.type, job.playerId, job.contents, job.bookId));
         }
     }
-
 }

@@ -1,19 +1,10 @@
-import Book from "./Book";
-import Page, {Type} from "../Page/Page";
-import Job from "../Job/Job";
+import Book from "../../Book/Book";
+import {v4 as uuid} from "uuid";
+import Page, {Type} from "../../Page/Page";
+import Job from "../../Job/Job";
+import IBookService from "../BookService";
 
-import {v4 as uuid} from 'uuid';
-
-export interface IBookService {
-    findById: (id: string) => Book | undefined;
-    findByRoomId: (roomId: string) => Book[];
-    create: (playerIds: string[], authorId: string, roomId: string) => Book;
-    nextJob: (id: string) => Job | undefined;
-    skipPage: (id: string) => Job | undefined;
-    addPage: (id: string, page: Page) => void;
-}
-
-export class InMemoryBookService implements IBookService {
+export default class InMemoryBookService implements IBookService {
     private books: Book[];
 
     constructor() {
@@ -49,9 +40,9 @@ export class InMemoryBookService implements IBookService {
             const players = book.players;
             if (players.length > 0) {
                 const page = pages.length > 0 ? pages[pages.length - 1] : undefined;
-                 const type = (page ? (page.type === Type.DEPICTION ? Type.DESCRIPTION : Type.DEPICTION) : Type.DESCRIPTION);
-                 const contents = page ? page.contents : '';
-                 return new Job("", type, players[0], contents, id);
+                const type = (page ? (page.type === Type.DEPICTION ? Type.DESCRIPTION : Type.DEPICTION) : Type.DESCRIPTION);
+                const contents = page ? page.contents : '';
+                return new Job("", type, players[0], contents, id);
             }
         }
 

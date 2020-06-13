@@ -1,11 +1,6 @@
-import Gallery from './Gallery';
-import {v4 as uuid} from 'uuid';
-
-export interface IGalleryService {
-    createGallery: (roomId: string, bookIds: string[]) => Gallery;
-    findById: (id?: string) => Gallery | undefined;
-    setProgress: (id: string, active?: string, progress?: number) => void;
-}
+import Gallery from "../../Gallery/Gallery";
+import {v4 as uuid} from "uuid";
+import IGalleryService from "../GalleryService";
 
 export class InMemoryGalleryService implements IGalleryService {
     private galleries : Gallery[];

@@ -1,14 +1,7 @@
-import Room from "./Room";
-import Player from "../Player/Player";
-import {v4 as uuid} from 'uuid';
-
-export interface IRoomService {
-    join: (p: Player, joinCode: string) => Room;
-    findById: (id: string) => Room | undefined;
-    addGallery: (id: string, galleryId: string) => boolean;
-    clearGallery: (id: string) => void;
-    players: (id: string) => Player[];
-}
+import Room from "../../Room/Room";
+import Player from "../../Player/Player";
+import {v4 as uuid} from "uuid";
+import IRoomService from "../RoomService";
 
 export class InMemoryRoomService implements IRoomService {
     private rooms: Map<string, Room>;

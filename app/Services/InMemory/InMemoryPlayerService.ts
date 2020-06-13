@@ -1,14 +1,8 @@
-import Player, {State} from "./Player";
-import {v4 as uuid} from 'uuid';
+import Player, {State} from "../../Player/Player";
+import {v4 as uuid} from "uuid";
+import IPlayerService from "../PlayerService";
 
-export interface IPlayerService {
-    createPlayer: (playerName: string) => Player;
-    getPlayer: (playerId: string) => Player | undefined;
-    seen: (playerId: string) => void;
-    markInactive: (playerId: string) => void;
-}
-
-export class InMemoryPlayerService implements IPlayerService {
+export default class InMemoryPlayerService implements IPlayerService {
 
     private players: Map<string, Player>;
     private lastSeen : Map<string, Date>;
