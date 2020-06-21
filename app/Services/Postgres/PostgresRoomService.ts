@@ -28,6 +28,11 @@ export default class PostgresRoomService implements IRoomService {
 
     async findById(id: string): Promise<Room | undefined> {
         const roomResult = await this.client.query('SELECT lobby_name, active_gallery_id FROM room WHERE id = $1', [id]);
+
+        if (await this.staleCheck(id)) {
+            return;
+        }
+
         if (roomResult.rows.length > 0) {
             const row = roomResult.rows[0];
             const {players, galleries} = await this.fetchPlayersAndGalleries(id);
@@ -39,7 +44,7 @@ export default class PostgresRoomService implements IRoomService {
 
     private async fetchPlayersAndGalleries(id: string) {
         const playerResult = await this.client.query('SELECT player_id FROM room_player WHERE room_id = $1 ORDER BY id', [id]);
-        const players = playerResult.rows.map(row => row.player_id).reduce((u, p) => u.add(p), new Set<string>());
+        const players =  playerResult.rows.map(row => row.player_id).reduce((u, p) => u.add(p), new Set<string>());
         const galleryResult = await this.client.query('SELECT id FROM gallery WHERE room_id = $1 ORDER BY created', [id]);
         const galleries = galleryResult.rows.map(row => row.id).reduce((u, g) => u.add(g), new Set<string>());
         return {players, galleries};
@@ -53,6 +58,11 @@ export default class PostgresRoomService implements IRoomService {
         if (roomResult.rows.length > 0) {
             roomId = roomResult.rows[0].id;
             activeGalleryId = roomResult.rows[0] || '';
+            if (await this.staleCheck(roomId)) {
+                roomId = uuid();
+                activeGalleryId = '';
+                await this.client.query('INSERT INTO room(id, lobby_name) VALUES ($1, $2)', [roomId, lobbyNameLowerCase]);
+            }
         } else {
             roomId = uuid();
             activeGalleryId = '';
@@ -64,6 +74,16 @@ export default class PostgresRoomService implements IRoomService {
         const {players, galleries} = await this.fetchPlayersAndGalleries(roomId);
 
         return new Room(roomId, lobbyNameLowerCase, players, activeGalleryId, galleries);
+    }
+
+    private async staleCheck(roomId: string) {
+        //If all the players have been missing for longer than 10 minutes, just delete the room.
+        const activeResult = await this.client.query('SELECT MIN(ROUND(DATE_PART(\'epoch\', (NOW() - p.last_seen)))) as stale FROM room_player rp JOIN player p ON rp.player_id = p.id WHERE rp.room_id = $1', [roomId]);
+        let stale = activeResult.rows.length > 0 && activeResult.rows[0].stale > 600;
+        if (stale) {
+            await this.client.query('DELETE FROM room WHERE id = $1', [roomId]);
+        }
+        return stale;
     }
 
     async players(id: string): Promise<string[]> {
