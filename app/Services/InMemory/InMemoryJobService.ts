@@ -9,11 +9,11 @@ export default class InMemoryJobService implements IJobService {
         this.jobs = [];
     }
 
-    get(playerId : string) {
+    async get(playerId : string) {
         return this.jobs.find(j => !j.completed && j.playerId === playerId);
     }
 
-    complete(jobId : string) {
+    async complete(jobId : string) {
         const job = this.jobs.find(j => j.jobId === jobId);
         if (job) {
             job.completed = true;
@@ -21,18 +21,18 @@ export default class InMemoryJobService implements IJobService {
         return job;
     }
 
-    cancel(jobId: string) {
+    async cancel(jobId: string) {
         const job = this.jobs.find(j => j.jobId === jobId);
         if (job) {
             job.completed = true;
         }
     }
 
-    getActive() {
+    async getActive() {
         return this.jobs.filter(j => !j.completed);
     }
 
-    queue(job?: Job) {
+    async queue(job?: Job) {
         if (job) {
             this.jobs.push(new Job(uuid(), job.type, job.playerId, job.contents, job.bookId));
         }

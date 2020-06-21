@@ -9,18 +9,18 @@ export class InMemoryGalleryService implements IGalleryService {
         this.galleries = [];
     }
 
-    createGallery(roomId: string, bookIds: string[]) {
+    async createGallery(roomId: string, bookIds: string[]) {
         const gallery = new Gallery(uuid(), bookIds, roomId);
         this.galleries.push(gallery);
         return gallery;
     }
 
-    findById(id?: string) {
+    async findById(id?: string) {
         return this.galleries.find(g => g.id === id);
     }
 
-    setProgress(id: string, active?: string, progress?: number) {
-        const gallery = this.findById(id);
+    async setProgress(id: string, active?: string, progress?: number) {
+        const gallery = await this.findById(id);
         if (gallery) {
             if (typeof active === "string") {
                 gallery.active = active;

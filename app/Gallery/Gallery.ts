@@ -5,12 +5,16 @@ class Gallery {
     active: string;
     progress: number;
 
-    constructor(id: string, bookIds: string[], roomId: string) {
+    constructor(id: string, bookIds: string[], roomId: string, active?: string, progress?: number) {
         this.id = id;
         this.bookIds = bookIds;
         this.roomId = roomId;
-        this.active = '';
-        this.progress = -1;
+        this.active = active || '';
+        if (typeof progress === "number") {
+            this.progress = progress;
+        } else {
+            this.progress = -1;
+        }
     }
 }
 

@@ -1,4 +1,5 @@
-import express, {Request} from 'express';
+import express from 'express';
+import {addAsync, ExpressWithAsync} from '@awaitjs/express';
 import {json} from "body-parser";
 import cors from "cors";
 import Player, {State} from "./Player/Player";
@@ -6,13 +7,20 @@ import Book from "./Book/Book";
 import playerOrder from "./playerOrder";
 import Page, {Type} from "./Page/Page";
 import escapeHTML from "escape-html";
-import InMemoryServices from "./Services/InMemory/InMemoryServices";
+// import InMemoryServices from "./Services/InMemory/InMemoryServices";
 import Persistence, {PersistenceProvider} from "./Persistence/Persistence";
+import Job from "./Job/Job";
+import {Pool, PoolClient} from "pg";
+import PostgresServices from "./Services/Postgres/PostgresServices";
 
-const app: express.Application = express();
+const app: ExpressWithAsync = addAsync(express());
 const port = 3001;
-const provider = new InMemoryServices();
-const p : PersistenceProvider = Persistence<void>(() => Promise.resolve(), () => true, () => Promise.resolve(), () => Promise.resolve(), provider);
+// const provider = new InMemoryServices();
+// const p : PersistenceProvider = Persistence<void>(() => Promise.resolve(), () => Promise.resolve(), () => Promise.resolve(), () => Promise.resolve(), provider);
+
+const provider = new PostgresServices();
+const pool = new Pool();
+const p : PersistenceProvider = Persistence<PoolClient>(() => pool.connect(), c => c.query('COMMIT'), c => c.query('ROLLBACK'), () => pool.connect(), c => c.release(), provider);
 
 app.use(json({
     limit: '10mb'
@@ -23,46 +31,40 @@ app.use(cors({
     methods: '*'
 }));
 
-app.use(async (req, res, next) => {
-    try {
-        const header = req.header("X-InkLink-UserId");
-        if (header) {
-            await p.execute(s => s.playerService.seen(header));
-        }
-        next();
-    } catch (err) {
-        next(err);
+app.useAsync(async (req) => {
+    const header = req.header("X-InkLink-UserId");
+    if (header) {
+        await p.execute(s => s.playerService.seen(header));
     }
 });
 
-setInterval(() => {
-    Promise.resolve(p.execute(s => {
-        s.jobService.getActive()
-            .map(j => ({j: j, p: s.playerService.getPlayer(j.playerId)}))
-            .filter(jp => !jp.p || jp.p.state === State.INACTIVE)
-            .forEach(jp => {
-                s.jobService.cancel(jp.j.jobId);
-                s.jobService.queue(s.bookService.skipPage(jp.j.bookId));
-            })
-    }));
-}, 1000);
+//TODO:Delete rooms where all players have been missing for 5 minutes.
+const cancelInactive = (() => {
+    p.execute(async s => {
+        const jobs : Job[] = await s.jobService.getActive();
+        const jobsWithPlayers = await Promise.all(jobs.map(j => s.playerService.getPlayer(j.playerId).then(p => ({j,p}))));
+        await Promise.all(jobsWithPlayers.filter(jp => !jp.p || jp.p.state === State.INACTIVE).map(jp => {s.jobService.cancel(jp.j.jobId).then(() => s.jobService.queue)}));
+    })
+        .catch(ex => console.log(ex))
+        .finally(() => setTimeout(cancelInactive, 1000))
+});
+cancelInactive();
 
-app.post('/join', (req : Request, res) => {
+app.postAsync('/join', async (req, res) => {
     if (req.body) {
         const playerId = req.body.playerId;
         const joinCode = req.body.joinCode;
         if (playerId && joinCode) {
-            return p.execute(s => {
-                const player = s.playerService.getPlayer(playerId);
+            return p.execute(async s => {
+                const player = await s.playerService.getPlayer(playerId);
                 if (player) {
-                    const room = s.roomService.join(player, joinCode);
+                    const room = await s.roomService.join(player, joinCode);
+                    const pids = await s.roomService.players(room.id);
+                    const players = await Promise.all(pids.map(id => s.playerService.getPlayer(id).then(p => ({id, name: p?.name}))));
                     return res.send({
                         id: room.id,
                         roomCode: room.lobbyName,
-                        players: s.roomService.players(room.id).map(id => ({
-                            id: id,
-                            name: s.playerService.getPlayer(id)?.name
-                        }))
+                        players
                     });
                 }
             });
@@ -71,11 +73,9 @@ app.post('/join', (req : Request, res) => {
     return res.status(400).send('Invalid join params');
 });
 
-app.post('/leave', (req, res) => {
+app.postAsync('/leave', async(req, res) => {
     if (req.body) {
-        p.execute(s => {
-            s.playerService.markInactive(req.body.playerId);
-        }).then();
+        await p.execute(s => s.playerService.markInactive(req.body.playerId));
     }
     res.status(201).send();
 });
@@ -84,231 +84,205 @@ app.post('/checkin', (req, res) => {
     res.status(201).send();
 });
 
-
-app.post('/player', (req, res) => {
+app.postAsync('/player', async (req, res) => {
     if (req.body) {
         const name = req.body.playerName;
-        if (name) {
-            return p.execute(s => { return s.playerService.createPlayer(name) })
-                .then(p => res.status(200).send(p));
-        }
+        const player = await p.execute(s => s.playerService.createPlayer(name));
+        return res.status(200).send(player);
     }
-    res.status(400).send('Invalid player params');
-})
+    res.status(400).send('Missing params');
+});
 
-app.post('/start', (req, res) => {
+app.postAsync('/start', async (req, res) => {
     if (req.body && req.body.roomId) {
-        return p.execute(s => {
-            const room = s.roomService.findById(req.body.roomId);
+        await p.execute(async s => {
+            const room = await s.roomService.findById(req.body.roomId);
             if (room) {
-                const players = s.roomService.players(room.id).filter(p => s.playerService.getPlayer(p)?.state === State.ACTIVE);
-                const shuffled : string[] = players.map(v => ({sort: Math.random(), v: v}))
+                const shuffled : string[] = (await Promise.all((await s.roomService.players(room.id)).map(p => s.playerService.getPlayer(p))))
+                    .filter((p): p is Player => p?.state === State.ACTIVE)
+                    .map(v => ({sort: Math.random(), v: v.id}))
                     .sort((a, b) => a.sort - b.sort)
                     .map(v => v.v);
                 const orders : string[][] = playerOrder(shuffled);
-                const books = orders.map(b => s.bookService.create(b, b[0], room.id));
-                const gallery = s.galleryService.createGallery(room.id, books.map(b => b.id));
-                if (s.roomService.addGallery(room.id, gallery.id)) {
-                    books.map(b => s.bookService.nextJob(b.id)).forEach(j => s.jobService.queue(j));
-                    return {status: 200, body: {galleryId: gallery.id}};
+                const books = await Promise.all(orders.map(b => s.bookService.create(b, b[0])));
+                const gallery = await s.galleryService.createGallery(room.id, books.map(b => b.id));
+                if (await s.roomService.addGallery(room.id, gallery.id)) {
+                    await Promise.all((await Promise.all(books.map(b => s.bookService.nextJob(b.id)))).map(j => s.jobService.queue(j)));
+                    res.status(200).send({galleryId: gallery.id});
                 } else {
-                    return {status: 409, body: {msg: 'Room already has an active gallery'}};
+                    res.status(409).send({msg: 'Room already has an active gallery'});
+                    throw new Error('Room already has an active gallery');
                 }
             }
-            return {status: 404, body: {msg: 'Room not found'}};
-        }).then(sb => res.status(sb.status).send(sb.body));
-    }
-    res.status(400).send({msg: 'Missing params'});
-});
-
-app.post('/complete', (req, res) => {
-    if (req.body && req.body.roomId) {
-        return p.execute(s => { s.roomService.clearGallery(req.body.roomId); })
-            .then(() => res.status(204).end())
-    }
-    res.status(400).send({
-        msg: 'Missing params'
-    })
-});
-
-app.get('/room', (req, res) => {
-    const id = req.query.id;
-    if (typeof id === "string") {
-        return p.read().then(s => {
-            const room = s.roomService.findById(id);
-            if (room) {
-                return res.status(200).send({
-                    players: s.roomService.players(room.id).map(p => s.playerService.getPlayer(p)),
-                    galleryId: room.activeGalleryId,
-                    galleries: [...room.galleries].filter(g => g !== room.activeGalleryId)
-                });
-            }
-            return res.status(404).send({msg: 'Room not found'});
         });
     } else {
         res.status(400).send({msg: 'Missing params'});
     }
 });
 
-app.get('/waiting', (req, res) => {
+app.postAsync('/complete', async (req, res) => {
+    if (req.body && req.body.roomId) {
+        await p.execute(s => s.roomService.clearGallery(req.body.roomId));
+        res.status(204).end();
+    } else {
+        res.status(400).send({
+            msg: 'Missing params'
+        })
+    }
+});
+
+app.getAsync('/room', async (req, res) => {
+    const id = req.query.id;
+    if (typeof id === "string") {
+        const s = await p.read();
+        const room = await s.roomService.findById(id);
+        if (room) {
+            const players = await Promise.all([...room.players.values()].map(p => s.playerService.getPlayer(p)));
+            return res.status(200).send({
+                players, galleryId: room.activeGalleryId, galleries: [...room.galleries].filter(g => g !== room.activeGalleryId)
+            });
+        }
+        return res.status(404).send({msg: 'Room not found'});
+    } else {
+        return res.status(400).send({msg: 'Missing params'});
+    }
+});
+
+app.getAsync('/waiting', async (req, res) => {
     const id = req.query.id;
     const roomId = req.query.roomId;
     if (typeof id === "string" && typeof roomId === "string") {
-        return p.read().then(s => {
-            const job = s.jobService.get(id);
-            const room = s.roomService.findById(roomId);
-            const gallery = s.galleryService.findById(room?.activeGalleryId);
-            const complete = gallery && (gallery.bookIds.map(b => s.bookService.findById(b)).find(b => b && !b.complete()) === undefined);
-            return res.send({job, complete});
-        });
+        const s = await p.read();
+        const job = await s.jobService.get(id);
+        const room = await s.roomService.findById(roomId);
+        const gallery = await s.galleryService.findById(room?.activeGalleryId);
+        let complete = false;
+        if (gallery) {
+            const books = await Promise.all(gallery.bookIds.map(b => s.bookService.findById(b)));
+            complete = books.find(b => b && !b.complete) === undefined;
+        }
+        return res.send({job, complete});
     } else {
         res.status(400).send({msg: 'Missing params'});
     }
 })
 
-app.get('/books', (req, res) => {
-    const id = req.query.roomId;
-    if (typeof id === "string") {
-        p.read().then(s => {
-            const room = s.roomService.findById(id);
-            if (room) {
-                const players = s.roomService.players(room.id)
-                    .map(p => s.playerService.getPlayer(p))
-                    .filter((p): p is Player => typeof p !== "undefined")
-                    .reduce((map, p) => map.set(p.id, p.name), new Map<string, string>())
-                const books = s.bookService.findByRoomId(id).map(b => ({
-                    pages: b.pages.map(p => ({
-                        type: p.type,
-                        contents: p.contents,
-                        author: players.get(p.authorId)
-                    })),
-                    author: players.get(b.authorId)
-                }));
-                res.status(200).send({books})
-            } else {
-                res.status(404).send({msg: 'Room not found'});
-            }
-        });
-    } else {
-        res.status(400).send({msg: 'Missing params'});
-    }
-})
-
-app.post('/job', (req, res) => {
+app.post('/job', async (req, res) => {
     if (req.body && req.body.id && req.body.contents) {
-        p.execute(s => {
-            const job = s.jobService.complete(req.body.id);
+        await p.execute(async s => {
+            const job = await s.jobService.complete(req.body.id);
             if (job) {
                 const page = new Page(job.type, req.body.contents, job.playerId);
-                s.bookService.addPage(job.bookId, page);
-                s.jobService.queue(s.bookService.nextJob(job.bookId));
+                await s.bookService.addPage(job.bookId, page);
+                let nextJob = await s.bookService.nextJob(job.bookId);
+                await s.jobService.queue(nextJob);
             }
-        }).then(()=> res.status(204).end());
-    } else{
+        });
+        return res.status(204).end();
+    } else {
         res.status(400).send('Bad complete params');
     }
 });
 
-app.get('/gallery', (req, res) => {
+app.getAsync('/gallery', async (req, res) => {
     const id = req.query.galleryId;
     if (typeof id === "string") {
-        p.read()
-            .then(s => {
-                const gallery = s.galleryService.findById(id);
-                if (gallery) {
-                    return res.status(200).send({
-                        active: gallery.active,
-                        progress: gallery.progress
-                    });
-                } else {
-                    return res.status(404).send({
-                        msg: 'Gallery not found'
-                    });
-                }
+        const s = await p.read();
+        const gallery = await s.galleryService.findById(id);
+        if (gallery) {
+            return res.status(200).send({
+                active: gallery.active,
+                progress: gallery.progress
             });
+        } else {
+            return res.status(404).send({
+                msg: 'Gallery not found'
+            });
+        }
     } else {
         return res.status(400).send({msg: 'Missing params'});
     }
 })
 
-//Are both gallery/books and /books used?
-app.get('/gallery/books', (req, res) => {
+app.getAsync('/gallery/books', async (req, res) => {
     const id = req.query.galleryId;
     if (typeof id === "string") {
-        return p.read()
-            .then(s => {
-                const gallery = s.galleryService.findById(id);
-                if (gallery) {
-                    const room = s.roomService.findById(gallery.roomId);
-                    if (room) {
-                        //Is this map really necessary? We could just make the individual queries inline.
-                        const players = s.roomService.players(room.id)
-                            .map(p => s.playerService.getPlayer(p))
-                            .filter((p): p is Player => typeof p !== "undefined")
-                            .reduce((map, p) => map.set(p.id, p.name), new Map<string, string>());
-                        const books = gallery.bookIds.map(b => s.bookService.findById(b))
-                            .filter((b): b is Book => typeof b !== "undefined")
-                            .map(b => ({
-                                id: b.id,
-                                pages: b.pages.map(p => ({
-                                    type: p.type,
-                                    contents: p.contents,
-                                    author: players.get(p.authorId)
-                                })),
-                                author: players.get(b.authorId)
-                            }));
-                        res.status(200).send({books});
-                    } else {
-                        res.status(404).send({
-                            msg: 'Gallery not found'
+        const s = await p.read();
+        const gallery = await s.galleryService.findById(id);
+        if (gallery) {
+            const room = await s.roomService.findById(gallery.roomId);
+            if (room) {
+                const players = (await Promise.all([...room.players.values()]
+                    .map(p => s.playerService.getPlayer(p))))
+                    .filter((p): p is Player => typeof p !== "undefined")
+                    .reduce((map, p) => map.set(p.id, p.name), new Map<string, string>());
+                const books = (await Promise.all(gallery.bookIds.map(b => s.bookService.findById(b))))
+                    .filter((b): b is Book => typeof b !== "undefined")
+                    .map(b => ({
+                            id: b.id,
+                            pages: b.pages.map(p => ({
+                                type: p.type,
+                                contents: p.contents,
+                                author: players.get(p.authorId)
+                            })),
+                            author: players.get(b.authorId)
                         })
-                    }}
-            });
+                    );
+                return res.status(200).send({books});
+            } else {
+                return res.status(404).send({
+                    msg: 'Gallery not found'
+                });
+            }
+        }
     } else {
         return res.status(400).send({msg: 'Missing params'});
     }
 });
 
-app.get('/gallery/download', (req, res) => {
+app.getAsync('/gallery/download', async (req, res) => {
     const id = req.query.galleryId;
     if (typeof id === "string") {
-        p.read().then(s => {
-            const gallery = s.galleryService.findById(id);
-            const prefix = '<!DOCTYPE html><html lang="en"><head><link href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap" rel="stylesheet"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ink Link Gallery</title></head><body><style> body { font-family: "Caveat Brush", "Arial", "Helvetica", "sans-serif"; background: #eff1f3; } .book { display: flex; flex-direction: column; width: 100vw; align-items: center; } .book > h1 { width: 95%; } .book > * { padding: 1rem; } .picture { display: flex; flex-direction: column; align-items: flex-end; } .picture img { max-width: 95vw; margin: auto; border: 2px solid #223843; background: #ffffff; }</style>'
-            const suffix = '</body></html>';
-            if (gallery) {
-                const page = prefix
-                    + gallery.bookIds.map(b => s.bookService.findById(b))
-                        .filter((b): b is Book => typeof b !== "undefined")
-                        .map(b => {
-                            const bookAuthor = s.playerService.getPlayer(b.authorId);
-                            const name = escapeHTML((bookAuthor) ? bookAuthor.name : 'Unknown');
-                            return `<h1>${name}'s book</h1>${b.pages.map(p => {
-                                const player = s.playerService.getPlayer(p.authorId);
-                                const name = escapeHTML((player) ? player.name : 'Unknown');
-                                if (p.type === Type.DESCRIPTION) {
-                                    return `<span>${name}: "${escapeHTML(p.contents)}"</span>`;
-                                } else if (p.type === Type.DEPICTION) {
-                                    return `<div class="picture"><img src="${escapeHTML(p.contents)}" alt="Picture by ${name}"/><span>By ${name}</span></div>`
-                                }
-                            }).join('')}`;
-                        }).join('')
-                    + suffix;
-                res.status(200)
+        const s = await p.read();
+        const gallery = await s.galleryService.findById(id);
+        const prefix = '<!DOCTYPE html><html lang="en"><head><link href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap" rel="stylesheet"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ink Link Gallery</title></head><body><style> body { font-family: "Caveat Brush", "Arial", "Helvetica", "sans-serif"; background: #eff1f3; } .book { display: flex; flex-direction: column; width: 100vw; align-items: center; } .book > h1 { width: 95%; } .book > * { padding: 1rem; } .picture { display: flex; flex-direction: column; align-items: flex-end; } .picture img { max-width: 95vw; margin: auto; border: 2px solid #223843; background: #ffffff; }</style>'
+        const suffix = '</body></html>';
+        if (gallery) {
+            const room = await s.roomService.findById(gallery?.roomId);
+            if (room) {
+                const players = (await Promise.all([...room.players.values()]
+                    .map(p => s.playerService.getPlayer(p))))
+                    .filter((p): p is Player => typeof p !== "undefined")
+                    .reduce((map, p) => map.set(p.id, p.name), new Map<string, string>());
+                const books = (await Promise.all(gallery.bookIds.map(b => s.bookService.findById(b))))
+                    .filter((b): b is Book => typeof b !== "undefined")
+                    .map(b => {
+                        const bookAuthor = players.get(b.authorId);
+                        const name = escapeHTML((bookAuthor) ? bookAuthor : 'Unknown');
+                        return `<h1>${name}'s book</h1>${b.pages.map(p => {
+                            const player = players.get(p.authorId);
+                            const name = escapeHTML((player) ? player : 'Unknown');
+                            if (p.type === Type.DESCRIPTION) {
+                                return `<span>${name}: "${escapeHTML(p.contents)}"</span>`;
+                            } else if (p.type === Type.DEPICTION) {
+                                return `<div class="picture"><img src="${escapeHTML(p.contents)}" alt="Picture by ${name}"/><span>By ${name}</span></div>`
+                            }
+                        }).join('')}`;
+                    });
+                return res.status(200)
                     .header('Content-Type', 'text/html; charset=UTF-8')
-                    .send(page);
-            } else {
-                res.status(404)
-                    .header('Content-Type', 'text/html; charset=UTF-8')
-                    .send('<html lang="en"><head><title>Ink Link Gallery - 404</title></head><body><p>Sorry, that gallery could not be found</p></body></html>');
+                    .send(prefix + books + suffix);
             }
-        });
+        }
+        return res.status(404)
+            .header('Content-Type', 'text/html; charset=UTF-8')
+            .send('<html lang="en"><head><title>Ink Link Gallery - 404</title></head><body><p>Sorry, that gallery could not be found</p></body></html>');
     } else {
         res.status(400).send({msg: 'Missing params'})
     }
 });
 
-app.post('/gallery', (req,res) => {
+app.postAsync('/gallery', async (req, res) => {
     const id = req.body.galleryId;
     let active : string, progress : number;
     if (typeof req.body.active === "string") {
@@ -319,9 +293,9 @@ app.post('/gallery', (req,res) => {
         progress = req.body.progress;
     }
 
-    return p.execute(s => { s.galleryService.setProgress(id, active, progress); })
-        .then(() => res.status(204).end());
-})
+    await p.execute(s => s.galleryService.setProgress(id, active, progress));
+    return res.status(204).end();
+});
 
 app.listen(port, () => {
     console.log(`Ink Link listening on ${port}!`);

@@ -11,30 +11,26 @@ export default class InMemoryBookService implements IBookService {
         this.books = [];
     }
 
-    findById(id: string) {
+    async findById(id: string) {
         return this.books.find(b => b.id === id);
     }
 
-    create(playerIds: string[], authorId: string, roomId: string) {
-        const book = new Book(uuid(), authorId, playerIds, roomId);
+    async create(playerIds: string[], authorId: string) {
+        const book = new Book(uuid(), authorId, playerIds);
         this.books.push(book);
         return book;
     }
 
-    findByRoomId(roomId: string) {
-        return this.books.filter(b => b.roomId === roomId);
-    }
-
-    addPage(id: string, page: Page) {
-        const book = this.findById(id);
+    async addPage(id: string, page: Page) {
+        const book = await this.findById(id);
         if (book) {
             book.players.shift();
             book.pages.push(page);
         }
     }
 
-    nextJob(id: string) {
-        const book = this.findById(id);
+    async nextJob(id: string) {
+        const book = await this.findById(id);
         if (book) {
             const pages = book.pages;
             const players = book.players;
@@ -49,8 +45,8 @@ export default class InMemoryBookService implements IBookService {
         return undefined;
     }
 
-    skipPage(id: string) {
-        const book = this.findById(id);
+    async skipPage(id: string) {
+        const book = await this.findById(id);
         if (book) {
             book.players.shift();
             return this.nextJob(id);

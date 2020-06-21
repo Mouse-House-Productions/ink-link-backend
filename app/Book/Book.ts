@@ -5,14 +5,12 @@ class Book {
    pages: Page[];
    authorId : string;
    players: string[];
-   roomId: string;
 
-   constructor(id: string, authorId: string, players: string[], roomId: string) {
+   constructor(id: string, authorId: string, players: string[], pages?: Page[]) {
       this.id = id;
       this.authorId = authorId;
       this.players = players;
-      this.pages = [];
-      this.roomId = roomId;
+      this.pages = pages || [];
    }
 
    complete() {

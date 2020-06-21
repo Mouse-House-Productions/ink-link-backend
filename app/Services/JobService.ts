@@ -1,10 +1,10 @@
 import Job from "../Job/Job";
 
 export default interface IJobService {
-    get: (playerId: string) => Job | undefined;
-    getActive: () => Job[];
-    complete: (jobId : string) => Job | undefined;
-    cancel: (jobId: string) => void;
-    queue: (job? : Job) => void;
+    get: (playerId: string) => Promise<Job | undefined>;
+    getActive: () => Promise<Job[]>;
+    complete: (jobId : string) => Promise<Job | undefined>;
+    cancel: (jobId: string) => Promise<void>;
+    queue: (job? : Job) => Promise<void>;
 }
 

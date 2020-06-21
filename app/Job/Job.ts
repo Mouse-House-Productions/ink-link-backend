@@ -8,13 +8,13 @@ class Job {
     readonly bookId: string;
     completed: boolean;
 
-    constructor(jobId: string, type: Type, playerId: string, contents: string, bookId: string) {
+    constructor(jobId: string, type: Type, playerId: string, contents: string, bookId: string, completed?: boolean) {
         this.jobId = jobId;
         this.type = type;
         this.playerId = playerId;
         this.contents = contents;
         this.bookId = bookId;
-        this.completed = false;
+        this.completed = !!completed;
     }
 
 }

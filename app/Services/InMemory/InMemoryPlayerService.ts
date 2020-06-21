@@ -21,30 +21,29 @@ export default class InMemoryPlayerService implements IPlayerService {
         }, 1000);
     }
 
-    createPlayer(playerName: string): Player {
+    async createPlayer(playerName: string) {
         const player : Player = new Player(uuid(), playerName, State.ACTIVE);
         this.players.set(player.id, player);
         this.lastSeen.set(player.id, new Date());
         return player;
     }
 
-    getPlayer(playerId: string): Player | undefined {
+    async getPlayer(playerId: string) {
         return this.players.get(playerId);
     }
 
-    seen(playerId: string): void {
+    async seen(playerId: string) {
         this.lastSeen.set(playerId, new Date());
-        let player = this.getPlayer(playerId);
-        if (player) {
-            player.state = State.ACTIVE;
-        }
+        this.getPlayer(playerId).then(p => {
+            if (p) {p.state = State.ACTIVE}
+        });
     }
 
-    markInactive(playerId: string) : void {
+    async markInactive(playerId: string) {
         let player = this.getPlayer(playerId);
-        if (player) {
-            player.state = State.INACTIVE;
-        }
+        this.getPlayer(playerId).then(p => {
+            if (p) {p.state = State.INACTIVE}
+        });
     }
 
 }

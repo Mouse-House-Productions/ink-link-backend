@@ -10,7 +10,7 @@ export class InMemoryRoomService implements IRoomService {
         this.rooms = new Map<string, Room>();
     }
 
-    join(p: Player, joinCode: string) {
+    async join(p: Player, joinCode: string) {
         const lobbyName = joinCode.toLowerCase();
         let room = this.rooms.get(lobbyName);
         if (!room) {
@@ -21,19 +21,20 @@ export class InMemoryRoomService implements IRoomService {
         return room;
     }
 
-    players(id: string) {
-        const room = this.findById(id);
+    async players(id: string) {
+        const room = await this.findById(id);
+        let ret: string[] = [];
         if (room) {
-            return [...room.players.values()];
+            ret = [...room.players.values()];
         }
-        return [];
+        return ret;
     }
 
-    findById(id: string) {
+    async findById(id: string) {
         return [...this.rooms.values()].find(r => r.id === id);
     }
 
-    addGallery(id: string, galleryId: string) {
+    async addGallery(id: string, galleryId: string) {
         let room = [...this.rooms.values()].find(r => r.id === id);
         if (room && room.activeGalleryId === '') {
             room.galleries.add(galleryId);
@@ -44,7 +45,7 @@ export class InMemoryRoomService implements IRoomService {
     }
 
 
-    clearGallery(id: string) {
+    async clearGallery(id: string) {
         let room = [...this.rooms.values()].find(r => r.id === id);
         if (room) {
             room.activeGalleryId = '';
