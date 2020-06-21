@@ -43,7 +43,7 @@ const cancelInactive = (() => {
     p.execute(async s => {
         const jobs : Job[] = await s.jobService.getActive();
         const jobsWithPlayers = await Promise.all(jobs.map(j => s.playerService.getPlayer(j.playerId).then(p => ({j,p}))));
-        await Promise.all(jobsWithPlayers.filter(jp => !jp.p || jp.p.state === State.INACTIVE).map(jp => {s.jobService.cancel(jp.j.jobId).then(() => s.jobService.queue)}));
+        await Promise.all(jobsWithPlayers.filter(jp => !jp.p || jp.p.state === State.INACTIVE).map(jp => {s.jobService.cancel(jp.j.jobId).then(() => s.bookService.skipPage(jp.j.bookId).then(j => s.jobService.queue(j)))}));
     })
         .catch(ex => console.log(ex))
         .finally(() => setTimeout(cancelInactive, 1000))
@@ -121,8 +121,8 @@ app.postAsync('/start', async (req, res) => {
 });
 
 app.postAsync('/complete', async (req, res) => {
-    if (req.body && req.body.roomId) {
-        await p.execute(s => s.roomService.clearGallery(req.body.roomId));
+    if (req.body && req.body.roomId && req.body.galleryId) {
+        await p.execute(s => s.roomService.clearGallery(req.body.roomId, req.body.galleryId));
         res.status(204).end();
     } else {
         res.status(400).send({
@@ -159,7 +159,7 @@ app.getAsync('/waiting', async (req, res) => {
         let complete = false;
         if (gallery) {
             const books = await Promise.all(gallery.bookIds.map(b => s.bookService.findById(b)));
-            complete = books.find(b => b && !b.complete) === undefined;
+            complete = books.find(b => b && !b.complete()) === undefined;
         }
         return res.send({job, complete});
     } else {

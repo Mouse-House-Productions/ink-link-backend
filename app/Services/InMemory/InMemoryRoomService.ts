@@ -45,9 +45,9 @@ export class InMemoryRoomService implements IRoomService {
     }
 
 
-    async clearGallery(id: string) {
+    async clearGallery(id: string, galleryId: string) {
         let room = [...this.rooms.values()].find(r => r.id === id);
-        if (room) {
+        if (room && room.activeGalleryId === galleryId) {
             room.activeGalleryId = '';
         }
     }

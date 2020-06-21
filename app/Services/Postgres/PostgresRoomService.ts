@@ -22,8 +22,8 @@ export default class PostgresRoomService implements IRoomService {
         return false;
     }
 
-    async clearGallery(id: string): Promise<void> {
-        await this.client.query('UPDATE room SET active_gallery_id = null WHERE id = $1', [id]);
+    async clearGallery(id: string, galleryId: string): Promise<void> {
+        await this.client.query('UPDATE room SET active_gallery_id = null WHERE id = $1 AND active_gallery_id = $2', [id, galleryId]);
     }
 
     async findById(id: string): Promise<Room | undefined> {
@@ -40,7 +40,7 @@ export default class PostgresRoomService implements IRoomService {
     private async fetchPlayersAndGalleries(id: string) {
         const playerResult = await this.client.query('SELECT player_id FROM room_player WHERE room_id = $1 ORDER BY id', [id]);
         const players = playerResult.rows.map(row => row.player_id).reduce((u, p) => u.add(p), new Set<string>());
-        const galleryResult = await this.client.query('SELECT id FROM gallery WHERE room_id = $1 ORDER BY id', [id]);
+        const galleryResult = await this.client.query('SELECT id FROM gallery WHERE room_id = $1 ORDER BY created', [id]);
         const galleries = galleryResult.rows.map(row => row.id).reduce((u, g) => u.add(g), new Set<string>());
         return {players, galleries};
     }

@@ -13,7 +13,7 @@ export default class PostgresGalleryService implements IGalleryService {
 
     async createGallery(roomId: string, bookIds: string[]): Promise<Gallery> {
         const galleryId = uuid();
-        await this.client.query('INSERT INTO gallery(id, room_id) VALUES ($1, $2)', [galleryId, roomId]);
+        await this.client.query('INSERT INTO gallery(id, room_id, created) VALUES ($1, $2, NOW())', [galleryId, roomId]);
         for (let i = 0; i < bookIds.length; i++) {
             await this.client.query('INSERT INTO gallery_book(gallery_id, book_id) VALUES ($1, $2)', [galleryId, bookIds[i]]);
         }

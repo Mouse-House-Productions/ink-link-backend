@@ -29,7 +29,7 @@ export default class PostgresJobService implements IJobService {
         const result = await this.client.query('SELECT id, type, contents, book_id FROM job WHERE player_id = $1 LIMIT 1', [playerId])
         if (result.rows.length > 0) {
             const row = result.rows[0];
-            return new Job(row.id, row.type, playerId, row.contents, row.book_id);
+            return new Job(row.id, row.type, playerId, row.contents, row.book_id, false);
         }
         return undefined;
     }

@@ -61,11 +61,18 @@ export default class PostgresBookService implements BookService {
     }
 
     async skipPage(id: string): Promise<Job | undefined> {
-        const result = await this.client.query('SELECT id FROM page WHERE book_id = $1 ORDER BY id LIMIT 1', [id]);
-        if (result.rows.length > 0) {
-            await this.client.query('DELETE FROM page WHERE id = $1', [result.rows[0].id]);
+        const pages = await this.client.query('SELECT id FROM page WHERE book_id = $1', [id]);
+        if (pages.rows.length === 0) {
+            //If we don't yet have a page
+            await this.client.query('DELETE FROM book WHERE id = $1', [id]);
+            await this.client.query('DELETE FROM gallery_book WHERE book_id = $1', [id]);
+        } else {
+            const result = await this.client.query('SELECT id FROM book_player WHERE book_id = $1 ORDER BY id', [id]);
+            if (result.rows.length > 0) {
+                await this.client.query('DELETE FROM book_player WHERE id = $1', [result.rows[0].id]);
+            }
+            return this.nextJob(id);
         }
-        return this.nextJob(id);
     }
 
 }
