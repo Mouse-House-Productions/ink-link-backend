@@ -52,21 +52,20 @@ cancelInactive();
 
 app.postAsync('/join', async (req, res) => {
     if (req.body) {
-        const playerId = req.body.playerId;
+        const playerName = req.body.playerName;
         const joinCode = req.body.joinCode;
-        if (playerId && joinCode) {
+        if (playerName && joinCode) {
             return p.execute(async s => {
-                const player = await s.playerService.getPlayer(playerId);
-                if (player) {
-                    const room = await s.roomService.join(player, joinCode);
-                    const pids = await s.roomService.players(room.id);
-                    const players = await Promise.all(pids.map(id => s.playerService.getPlayer(id).then(p => ({id, name: p?.name}))));
-                    return res.send({
-                        id: room.id,
-                        roomCode: room.lobbyName,
-                        players
-                    });
-                }
+                const player = await s.playerService.createPlayer(playerName);
+                const room = await s.roomService.join(player, joinCode);
+                const pids = await s.roomService.players(room.id);
+                const players = await Promise.all(pids.map(id => s.playerService.getPlayer(id).then(p => ({id, name: p?.name}))));
+                return res.send({
+                    id: room.id,
+                    roomCode: room.lobbyName,
+                    player,
+                    players
+                });
             });
         }
     }
@@ -82,15 +81,6 @@ app.postAsync('/leave', async(req, res) => {
 
 app.post('/checkin', (req, res) => {
     res.status(201).send();
-});
-
-app.postAsync('/player', async (req, res) => {
-    if (req.body) {
-        const name = req.body.playerName;
-        const player = await p.execute(s => s.playerService.createPlayer(name));
-        return res.status(200).send(player);
-    }
-    res.status(400).send('Missing params');
 });
 
 app.postAsync('/start', async (req, res) => {
