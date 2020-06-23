@@ -63,7 +63,7 @@ app.postAsync('/join', async (req, res) => {
                 return res.send({
                     id: room.id,
                     roomCode: room.lobbyName,
-                    player,
+                    playerId: player.id,
                     players
                 });
             });
