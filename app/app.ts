@@ -112,7 +112,18 @@ app.postAsync('/start', async (req, res) => {
 
 app.postAsync('/complete', async (req, res) => {
     if (req.body && req.body.roomId && req.body.galleryId) {
-        await p.execute(s => s.roomService.clearGallery(req.body.roomId, req.body.galleryId));
+        await p.execute(async s => {
+            const gallery = await s.galleryService.findById(req.body.galleryId);
+            let complete = false;
+            if (gallery) {
+                const books = await Promise.all(gallery.bookIds.map(b => s.bookService.findById(b)));
+                complete = books.find(b => b && !b.complete()) === undefined;
+            }
+
+            if (complete) {
+                return s.roomService.clearGallery(req.body.roomId, req.body.galleryId);
+            }
+        });
         res.status(204).end();
     } else {
         res.status(400).send({
