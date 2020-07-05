@@ -4,6 +4,7 @@ import InMemoryJobService from "./InMemoryJobService";
 import {InMemoryRoomService} from "./InMemoryRoomService";
 import {InMemoryGalleryService} from "./InMemoryGalleryService";
 import InMemoryPlayerService from "./InMemoryPlayerService";
+import InMemoryMetricsService from "./InMemoryMetricsService";
 
 export default class InMemoryServices implements ServicesProvider<void> {
 
@@ -15,7 +16,8 @@ export default class InMemoryServices implements ServicesProvider<void> {
             jobService: new InMemoryJobService(),
             roomService: new InMemoryRoomService(),
             galleryService: new InMemoryGalleryService(),
-            playerService: new InMemoryPlayerService()
+            playerService: new InMemoryPlayerService(),
+            metricsService: new InMemoryMetricsService(),
         }
     }
 

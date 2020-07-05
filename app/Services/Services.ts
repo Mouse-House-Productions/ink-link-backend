@@ -3,6 +3,7 @@ import IGalleryService from "./GalleryService";
 import IBookService from "./BookService";
 import IPlayerService from "./PlayerService";
 import IRoomService from "./RoomService";
+import IMetricsService from "./MetricsService";
 
 export interface Services {
     jobService: IJobService;
@@ -10,6 +11,7 @@ export interface Services {
     bookService: IBookService;
     playerService: IPlayerService;
     roomService: IRoomService;
+    metricsService: IMetricsService;
 }
 
 export default interface ServicesProvider<T> {

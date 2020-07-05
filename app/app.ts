@@ -12,6 +12,7 @@ import Persistence, {PersistenceProvider} from "./Persistence/Persistence";
 import Job from "./Job/Job";
 import {Pool, PoolClient} from "pg";
 import PostgresServices from "./Services/Postgres/PostgresServices";
+import hat from "hat";
 
 const app: ExpressWithAsync = addAsync(express());
 const port = 3001;
@@ -38,12 +39,11 @@ app.useAsync(async (req) => {
     }
 });
 
-//TODO:Delete rooms where all players have been missing for 5 minutes.
 const cancelInactive = (() => {
     p.execute(async s => {
         const jobs : Job[] = await s.jobService.getActive();
         const jobsWithPlayers = await Promise.all(jobs.map(j => s.playerService.getPlayer(j.playerId).then(p => ({j,p}))));
-        await Promise.all(jobsWithPlayers.filter(jp => !jp.p || jp.p.state === State.INACTIVE).map(jp => {s.jobService.cancel(jp.j.jobId).then(() => s.bookService.skipPage(jp.j.bookId).then(j => s.jobService.queue(j)))}));
+        await Promise.all(jobsWithPlayers.filter(jp => !jp.p || jp.p.state === State.INACTIVE).map(jp => {s.jobService.cancel(jp.j.jobId).then(() => s.metricsService.jobSkip()).then(() => s.bookService.skipPage(jp.j.bookId).then(j => s.jobService.queue(j)))}));
     })
         .catch(ex => console.log(ex))
         .finally(() => setTimeout(cancelInactive, 1000))
@@ -57,8 +57,12 @@ app.postAsync('/join', async (req, res) => {
         if (playerName && joinCode) {
             return p.execute(async s => {
                 const player = await s.playerService.createPlayer(playerName);
+                s.metricsService.player();
                 const room = await s.roomService.join(player, joinCode);
                 const pids = await s.roomService.players(room.id);
+                if (pids.length === 1) {
+                    s.metricsService.room();
+                }
                 const players = await Promise.all(pids.map(id => s.playerService.getPlayer(id).then(p => ({id, name: p?.name}))));
                 return res.send({
                     id: room.id,
@@ -74,7 +78,10 @@ app.postAsync('/join', async (req, res) => {
 
 app.postAsync('/leave', async(req, res) => {
     if (req.body) {
-        await p.execute(s => s.playerService.markInactive(req.body.playerId));
+        await p.execute(s => {
+            s.playerService.markInactive(req.body.playerId);
+            s.metricsService.leave();
+        });
     }
     res.status(201).send();
 });
@@ -96,6 +103,7 @@ app.postAsync('/start', async (req, res) => {
                 const orders : string[][] = playerOrder(shuffled);
                 const books = await Promise.all(orders.map(b => s.bookService.create(b, b[0])));
                 const gallery = await s.galleryService.createGallery(room.id, books.map(b => b.id));
+                s.metricsService.gallery(shuffled.length);
                 if (await s.roomService.addGallery(room.id, gallery.id)) {
                     await Promise.all((await Promise.all(books.map(b => s.bookService.nextJob(b.id)))).map(j => s.jobService.queue(j)));
                     res.status(200).send({galleryId: gallery.id});
@@ -173,6 +181,7 @@ app.post('/job', async (req, res) => {
         await p.execute(async s => {
             const job = await s.jobService.complete(req.body.id);
             if (job) {
+                job.type === Type.DEPICTION ? s.metricsService.picture() : s.metricsService.description();
                 const page = new Page(job.type, req.body.contents, job.playerId);
                 await s.bookService.addPage(job.bookId, page);
                 let nextJob = await s.bookService.nextJob(job.bookId);
@@ -245,6 +254,7 @@ app.getAsync('/gallery/download', async (req, res) => {
     const id = req.query.galleryId;
     if (typeof id === "string") {
         const s = await p.read();
+        s.metricsService.download();
         const gallery = await s.galleryService.findById(id);
         const prefix = '<!DOCTYPE html><html lang="en"><head><link href="https://fonts.googleapis.com/css2?family=Caveat+Brush&display=swap" rel="stylesheet"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ink Link Gallery</title></head><body><style> body { font-family: "Caveat Brush", "Arial", "Helvetica", "sans-serif"; background: #eff1f3; } .book { display: flex; flex-direction: column; width: 100vw; align-items: center; } .book > h1 { width: 95%; } .book > * { padding: 1rem; } .picture { display: flex; flex-direction: column; align-items: flex-end; } .picture img { max-width: 95vw; margin: auto; border: 2px solid #223843; background: #ffffff; }</style>'
         const suffix = '</body></html>';
@@ -298,6 +308,21 @@ app.postAsync('/gallery', async (req, res) => {
     return res.status(204).end();
 });
 
+const metricAuth = (process.env.METRIC_AUTH || hat());
+
+app.useAsync('/metrics', async (req, res) => {
+    let header = req.header("X-InkLink-Metric-Auth");
+    if (header === metricAuth) {
+        let metrics = (await p.read()).metricsService.metrics().getMetricsAsJSON();
+        res.status(200).send(metrics);
+    } else {
+        res.status(401).end();
+    }
+});
+
 app.listen(port, () => {
     console.log(`Ink Link listening on ${port}!`);
+    if (metricAuth !== process.env.METRIC_AUTH) {
+        console.log(`No auth token set, using temporary key ${metricAuth}`)
+    }
 });
