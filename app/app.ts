@@ -313,8 +313,10 @@ const metricAuth = (process.env.METRIC_AUTH || hat());
 app.useAsync('/metrics', async (req, res) => {
     let header = req.header("X-InkLink-Metric-Auth");
     if (header === metricAuth) {
-        let metrics = (await p.read()).metricsService.metrics().getMetricsAsJSON();
-        res.status(200).send(metrics);
+        let registry = (await p.read()).metricsService.metrics();
+        let metrics = registry.metrics();
+        let contentType = registry.contentType;
+        res.status(200).header('Content-Type', contentType).send(metrics);
     } else {
         res.status(401).end();
     }
