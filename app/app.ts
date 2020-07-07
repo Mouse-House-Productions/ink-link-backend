@@ -311,8 +311,8 @@ app.postAsync('/gallery', async (req, res) => {
 const metricAuth = (process.env.METRIC_AUTH || hat());
 
 app.useAsync('/metrics', async (req, res) => {
-    let header = req.header("X-InkLink-Metric-Auth");
-    if (header === metricAuth) {
+    let header = req.header("Authorization");
+    if (header === ('Bearer ' + metricAuth)) {
         let registry = (await p.read()).metricsService.metrics();
         let metrics = registry.metrics();
         let contentType = registry.contentType;
