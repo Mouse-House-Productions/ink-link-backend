@@ -14,7 +14,7 @@
     "url": "ssh://git@gitlab.citrusbytes.net:22448/elliot/ink-link-backend.git"
   },
   "author": "Team Mouse",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "dependencies": {
     "@awaitjs/express": "^0.6.1",
     "@types/body-parser": "^1.19.0",
